@@ -1,10 +1,7 @@
 
 import pytest
 
-from vulnmap.sbom import (
-    parse_purl,
-    packages_from_cyclonedx,
-)
+from vulnmap.sbom import packages_from_cyclonedx, parse_purl
 
 
 def test_parse_pypi_purl():
