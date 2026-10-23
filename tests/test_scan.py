@@ -46,8 +46,7 @@ def fake_osv(monkeypatch, handler):
         ("7.5", "high"),
         ("5.0", "medium"),
         ("2.0", "unknown"),
-        # CVSS vector strings are not parsed yet, so priority stays unknown.
-        ("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", "unknown"),
+                ("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", "critical"),
     ],
 )
 def test_classify_priority(score, expected):
