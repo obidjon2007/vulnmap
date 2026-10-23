@@ -1,0 +1,44 @@
+from fastapi.testclient import TestClient
+
+from vulnmap.main import app
+
+client = TestClient(app)
+
+
+def test_health():
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "service": "vulnmap",
+    }
+
+
+def test_scan_rejects_empty_package_list():
+    response = client.post(
+        "/scan",
+        json={
+            "project": "demo",
+            "packages": [],
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_scan_rejects_missing_project():
+    response = client.post(
+        "/scan",
+        json={
+            "packages": [
+                {
+                    "ecosystem": "PyPI",
+                    "name": "django",
+                    "version": "4.2.0",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 422
