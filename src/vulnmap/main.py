@@ -1,4 +1,4 @@
-
+import math
 from typing import Literal
 
 import httpx
@@ -12,6 +12,14 @@ app = FastAPI(
 )
 
 OSV_BATCH_URL = "https://api.osv.dev/v1/querybatch"
+
+# Metric weights from the public CVSS v3.1 specification (first.org/cvss).
+CVSS3_ATTACK_VECTOR = {"N": 0.85, "A": 0.62, "L": 0.55, "P": 0.2}
+CVSS3_ATTACK_COMPLEXITY = {"L": 0.77, "H": 0.44}
+CVSS3_USER_INTERACTION = {"N": 0.85, "R": 0.62}
+CVSS3_IMPACT = {"H": 0.56, "L": 0.22, "N": 0.0}
+CVSS3_PRIVILEGES_UNCHANGED = {"N": 0.85, "L": 0.62, "H": 0.27}
+CVSS3_PRIVILEGES_CHANGED = {"N": 0.85, "L": 0.68, "H": 0.5}
 
 
 class Package(BaseModel):
@@ -37,17 +45,94 @@ class Finding(BaseModel):
     references: list[str]
 
 
+def cvss3_roundup(value: float) -> float:
+    """Round up to one decimal place, as defined by CVSS v3.1."""
+    integer = round(value * 100000)
+
+    if integer % 10000 == 0:
+        return integer / 100000.0
+
+    return (math.floor(integer / 10000) + 1) / 10.0
+
+
+def cvss3_base_score(vector: str) -> float | None:
+    """Return the CVSS v3.x base score for a vector string.
+
+    Returns None when the vector is not a valid CVSS v3 vector.
+    """
+    parts = vector.split("/")
+
+    if not parts[0].startswith("CVSS:3"):
+        return None
+
+    metrics = {}
+
+    for part in parts[1:]:
+        key, separator, value = part.partition(":")
+
+        if not separator:
+            return None
+
+        metrics[key] = value
+
+    scope = metrics.get("S")
+
+    if scope not in ("U", "C"):
+        return None
+
+    privileges = (
+        CVSS3_PRIVILEGES_CHANGED if scope == "C" else CVSS3_PRIVILEGES_UNCHANGED
+    )
+
+    try:
+        exploitability = (
+            8.22
+            * CVSS3_ATTACK_VECTOR[metrics["AV"]]
+            * CVSS3_ATTACK_COMPLEXITY[metrics["AC"]]
+            * privileges[metrics["PR"]]
+            * CVSS3_USER_INTERACTION[metrics["UI"]]
+        )
+        isc_base = 1 - (
+            (1 - CVSS3_IMPACT[metrics["C"]])
+            * (1 - CVSS3_IMPACT[metrics["I"]])
+            * (1 - CVSS3_IMPACT[metrics["A"]])
+        )
+    except KeyError:
+        return None
+
+    if scope == "U":
+        impact = 6.42 * isc_base
+    else:
+        impact = 7.52 * (isc_base - 0.029) - 3.25 * (isc_base - 0.02) ** 15
+
+    if impact <= 0:
+        return 0.0
+
+    if scope == "U":
+        return cvss3_roundup(min(impact + exploitability, 10))
+
+    return cvss3_roundup(min(1.08 * (impact + exploitability), 10))
+
+
+def severity_score(item: dict) -> float | None:
+    """Read a numeric score from an OSV severity entry, if there is one."""
+    score = item.get("score", "")
+
+    if not isinstance(score, str):
+        return None
+
+    try:
+        return float(score)
+    except ValueError:
+        return cvss3_base_score(score)
+
+
 def classify_priority(vulnerability: dict) -> str:
     """Use numeric scores only; never guess from missing data."""
     for item in vulnerability.get("severity", []):
-        score = item.get("score", "")
+        value = severity_score(item)
 
-        if not isinstance(score, str):
-            continue
-
-        try:
-            value = float(score)
-        except ValueError:
+        if value is None:
             continue
 
         if value >= 9.0:
