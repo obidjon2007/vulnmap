@@ -1,0 +1,24 @@
+# Contributing to VulnMap
+
+Contributions are welcome.
+
+## How to Contribute
+
+1. Open an issue to discuss substantial changes.
+2. Fork the repository and create a branch.
+3. Add tests for new functionality.
+4. Run `ruff check src tests` and `pytest -v`.
+5. Submit a pull request with a clear explanation.
+
+## Good First Contributions
+
+- Improve API tests.
+- Document the OSV response format.
+- Add CVSS parsing with test cases.
+- Improve input validation and error handling.
+- Design a normalized vulnerability data model.
+
+## Security
+
+Do not submit secrets, private source code, or live exploit payloads.
+Report security vulnerabilities privately.
