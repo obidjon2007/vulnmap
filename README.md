@@ -1,6 +1,3 @@
-# vulnmap
-Open-source global vulnerability intelligence and remediation coordination platform.
-
 # VulnMap
 
 **Open-source vulnerability intelligence and remediation coordination.**
@@ -50,35 +47,4 @@ Open http://127.0.0.1:8000/docs to try the API.
 On Windows, activate the environment with:
 
 ```powershell
-.venv\Scripts\Activate.ps1
-```
-
-## API
-
-- `GET /health` — service health.
-- `POST /scan` — query known vulnerability data for supplied packages.
-
-## Safety
-
-VulnMap is intended for defensive security work. It queries vulnerability
-metadata and does not exploit systems or scan third-party servers.
-
-Do not submit secrets or private source code to this public service.
-
-## Roadmap
-
-- [ ] Normalize vulnerability severity and affected ranges.
-- [ ] Import CycloneDX and SPDX SBOM documents.
-- [ ] Store projects, dependencies, and observations.
-- [ ] Build a dependency and remediation graph.
-- [ ] Add a transparent remediation workflow.
-- [ ] Build a public dashboard.
-
-## Contributing
-
-Contributions, tests, documentation, and security reviews are welcome.
-See `CONTRIBUTING.md` once the contribution guidelines are published.
-
-## License
-
-Apache-2.0. See `LICENSE`.
+.venv
