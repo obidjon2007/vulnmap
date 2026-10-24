@@ -1,9 +1,11 @@
 import math
-from typing import Literal
+from typing import Annotated, Literal
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
+
+from vulnmap.sbom import packages_from_cyclonedx, project_name_from_cyclonedx
 
 app = FastAPI(
     title="VulnMap API",
@@ -12,6 +14,7 @@ app = FastAPI(
 )
 
 OSV_BATCH_URL = "https://api.osv.dev/v1/querybatch"
+MAX_SBOM_PACKAGES = 1000
 
 # Metric weights from the public CVSS v3.1 specification (first.org/cvss).
 CVSS3_ATTACK_VECTOR = {"N": 0.85, "A": 0.62, "L": 0.55, "P": 0.2}
@@ -43,6 +46,13 @@ class Finding(BaseModel):
     severity: str
     priority: Literal["critical", "high", "medium", "unknown"]
     references: list[str]
+
+
+class SbomScanResponse(BaseModel):
+    project: str
+    scanned_packages: int
+    skipped: list[str]
+    findings: list[Finding]
 
 
 def cvss3_roundup(value: float) -> float:
@@ -145,13 +155,11 @@ def classify_priority(vulnerability: dict) -> str:
     return "unknown"
 
 
-@app.get("/health")
-async def health():
-    return {"status": "ok", "service": "vulnmap"}
-
-
-@app.post("/scan", response_model=list[Finding])
-async def scan(request: ScanRequest):
+async def find_vulnerabilities(
+    project: str,
+    packages: list[Package],
+) -> list[Finding]:
+    """Ask OSV about the given packages and turn the answer into findings."""
     queries = [
         {
             "package": {
@@ -160,7 +168,7 @@ async def scan(request: ScanRequest):
             },
             "version": package.version,
         }
-        for package in request.packages
+        for package in packages
     ]
 
     try:
@@ -179,7 +187,7 @@ async def scan(request: ScanRequest):
 
     results = data.get("results", [])
 
-    if len(results) != len(request.packages):
+    if len(results) != len(packages):
         raise HTTPException(
             status_code=502,
             detail="Unexpected response from vulnerability provider",
@@ -187,7 +195,7 @@ async def scan(request: ScanRequest):
 
     findings = []
 
-    for package, result in zip(request.packages, results):
+    for package, result in zip(packages, results):
         for vulnerability in result.get("vulns", []):
             references = [
                 item["url"]
@@ -197,7 +205,7 @@ async def scan(request: ScanRequest):
 
             findings.append(
                 Finding(
-                    project=request.project,
+                    project=project,
                     ecosystem=package.ecosystem,
                     package=package.name,
                     version=package.version,
@@ -210,3 +218,55 @@ async def scan(request: ScanRequest):
             )
 
     return findings
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "vulnmap"}
+
+
+@app.post("/scan", response_model=list[Finding])
+async def scan(request: ScanRequest):
+    return await find_vulnerabilities(request.project, request.packages)
+
+
+@app.post("/scan/sbom", response_model=SbomScanResponse)
+async def scan_sbom(
+    document: Annotated[dict, Body()],
+    project: Annotated[str | None, Query(min_length=1, max_length=300)] = None,
+):
+    """Scan the components listed in a CycloneDX JSON SBOM."""
+    try:
+        found, skipped = packages_from_cyclonedx(document)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from None
+
+    project_name = project or project_name_from_cyclonedx(document)
+
+    if not project_name:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Project name is missing: add the ?project= query parameter "
+                "or metadata.component.name to the SBOM"
+            ),
+        )
+
+    if len(found) > MAX_SBOM_PACKAGES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Too many components (maximum is {MAX_SBOM_PACKAGES})",
+        )
+
+    findings = []
+
+    if found:
+        packages = [Package(**item) for item in found]
+        findings = await find_vulnerabilities(project_name, packages)
+
+    return SbomScanResponse(
+        project=project_name,
+        scanned_packages=len(found),
+        skipped=skipped,
+        findings=findings,
+    )
